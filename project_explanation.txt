@@ -1,0 +1,55 @@
+# Mini SIEM System Project Explanation
+
+## 1. Project Overview
+The project located at `d:\security` is a **Mini SIEM (Security Information and Event Management) System**. It is designed to ingest security logs, store them, display them in real-time on a web dashboard, and perform real-time correlation and threat intelligence lookups to detect potential attacks (e.g., brute force, port scans, data exfiltration).
+
+## 2. Technology Stack
+The application is built using a modern, decoupled architecture:
+
+*   **Backend (siem_backend):**
+    *   **Framework:** Python with FastAPI (for high-performance, asynchronous API endpoints).
+    *   **Real-time Communication:** WebSockets (built into FastAPI) for broadcasting live logs to the frontend.
+    *   **Database:** SQLite using `aiosqlite` and `SQLAlchemy` for asynchronous database interactions locally.
+    *   **Correlation & Caching:** In-memory mocked Redis-like class for managing sliding time windows (used for rate-limiting and rule detection).
+    *   **External APIs:** `httpx` for asynchronous requests to Threat Intelligence APIs (AbuseIPDB, VirusTotal).
+*   **Frontend (siem_frontend):**
+    *   **Framework:** React (v19) powered by Vite.
+    *   **Styling:** Tailwind CSS (v4) for rapid UI design.
+    *   **Icons & Maps:** `lucide-react` for icons, `react-leaflet` / `leaflet` for mapping IP locations.
+*   **Log Simulation:**
+    *   **Language:** Python script (`log_generator.py`) using `asyncio` and `urllib` to generate fake traffic.
+*   **Deployment:**
+    *   **Native Windows:** Batch script (`start_all.bat`) for easy local execution.
+    *   **Containerized (Optional):** Docker Compose (`docker-compose.yml`) configuration including PostgreSQL, Redis, Elasticsearch, and Nginx.
+
+## 3. How the Project Functions
+
+The architecture follows a standard data pipeline: Ingestion -> Processing & Storage -> Visualization & Alerting.
+
+### Step 1: Log Generation (`log_generator.py`)
+Since a real environment might not have consistent security events, a Python script constantly simulates network traffic. It randomly generates JSON logs representing events like `failed_login`, `successful_login`, `port_scan`, and `outbound_connection`. 
+It can run in "Normal Mode" (random traffic) or "Attack Mode" (simulating coordinated attacks like brute-forcing or massive data exfiltration). These logs are sent via POST requests to the backend API (`http://localhost:8000/api/logs`).
+
+### Step 2: Backend Processing (`siem_backend/main.py`)
+1.  **Ingestion:** The FastAPI backend receives the incoming logs and immediately writes them to the SQLite database.
+2.  **Broadcasting:** Upon successful database insertion, the backend instantly broadcasts the new log entry over a WebSocket connection to any connected frontend clients.
+3.  **Threat Intelligence (`threat_intel.py`):** The backend can enrich IP addresses by querying the AbuseIPDB API and caching the results in memory. If an IP has a high threat score, it is flagged as malicious.
+
+### Step 3: Correlation Engine (`siem_backend/rules_engine.py`)
+A background asynchronous task (`correlation_task`) runs every 10 seconds. It pulls the latest logs from the database and runs them through a sliding-window rules engine to identify complex attacks:
+*   **BRUTE_FORCE:** More than 5 failed logins within 60 seconds from the same IP.
+*   **PORT_SCAN:** Connections to more than 10 different destination ports within 30 seconds.
+*   **DATA_EXFIL:** Outbound traffic exceeding 100MB in a single session.
+*   **AFTER_HOURS:** An administrator logging in between 11 PM and 6 AM.
+*   **KNOWN_BAD_IP:** Traffic originating from an IP with a threat score > 80.
+If any of these conditions are met, an "Alert" object is generated and broadcasted via WebSockets to the frontend.
+
+### Step 4: Frontend Visualization (`siem_frontend`)
+The React frontend connects to the backend via REST APIs (for historical logs and pagination) and WebSockets (for live data). It displays a live dashboard updating in real-time with incoming logs and triggers visual alerts when the correlation engine detects an attack pattern.
+
+## 4. How to Run Locally
+The project is set up to easily run natively on Windows without requiring Docker. By executing `start_all.bat`, the script opens three separate terminal windows:
+1.  Starts the FastAPI backend on port 8000.
+2.  Starts the Vite React frontend on port 5173.
+3.  Starts the Python log generator in attack mode.
+You can view the resulting system at `http://localhost:5173`.
